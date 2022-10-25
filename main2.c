@@ -39,20 +39,20 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-#define TRIG_PIN GPIO_PIN_8
-#define TRIG_PORT_GPIO GPIOA
-#define ECHO_PIN GPIO_PIN_9
+#define TRIG_PIN GPIO_PIN_8	
+#define TRIG_PORT_GPIO GPIOA  //port A out
+#define ECHO_PIN GPIO_PIN_9	
 #define ECHO_PORT_GPIO GPIOA
 /**/
 #define TRIG_PIN2 GPIO_PIN_8
-#define TRIG_PORT_GPIO2 GPIOC
+#define TRIG_PORT_GPIO2 GPIOC ////port C in
+
 #define ECHO_PIN2 GPIO_PIN_9
 #define ECHO_PORT_GPIO2 GPIOC
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
 CAN_HandleTypeDef hcan1;
-CAN_HandleTypeDef hcan2;
 SPI_HandleTypeDef hspi1;
 osThreadId defaultTaskHandle;
 
