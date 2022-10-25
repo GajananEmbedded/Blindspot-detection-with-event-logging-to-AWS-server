@@ -1,4 +1,4 @@
-/* USER CODE BEGIN Header */
+ USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : main.c
@@ -19,7 +19,10 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
-
+#include "FreeRTOS.h"
+#include "semphr.h"
+#include "task.h"
+#include "stdio.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -54,11 +57,9 @@ SPI_HandleTypeDef hspi1;
 osThreadId defaultTaskHandle;
 
 /*TIMERS*/
-TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim4;
-TIM_HandleTypeDef htim6;
-TIM_HandleTypeDef htim7;
+
 
 /* SENSOR 1 */
 uint32_t pMillis;
@@ -75,10 +76,10 @@ unsigned int xLastWakeupTime1 = 0;
 unsigned int initial_setting = 0;
 unsigned int pending_interrupts=0;
 
-SemaphoreHandle_t Mutex_Handle_t = NULL;
+//SemaphoreHandle_t Mutex_Handle_t = NULL;
+SemaphoreHandle_t b_Semaphore = NULL;
 
-
-/* CAN VARIABLE */
+/* CAN VARIABLE *///frame variable
 uint8_t ubKeyNumber = 0x0;
 CAN_TxHeaderTypeDef   TxHeader;
 CAN_RxHeaderTypeDef   RxHeader;
@@ -89,9 +90,9 @@ uint32_t              TxMailbox;
 /*VARIABLES ACCELAROMETER*/
 uint8_t ReadFlag=0x80;
 uint8_t Return[2];
-uint16_t Rx_x,Rx_y,Rx_z;
+uint8_t Rx_y,Can_send;
 uint8_t displacement=0;
-uint8_t  distance_travel=0;
+uint8_t distance_travel=0;
 
 uint8_t  TxBuf[2];
 /* USER CODE END PV */
@@ -100,23 +101,21 @@ uint8_t  TxBuf[2];
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM4_Init(void);
-static void MX_TIM1_Init(void);
 static void MX_CAN1_Init(void);
-static void MX_CAN2_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
-static void MX_TIM6_Init(void);
-static void MX_TIM7_Init(void);
 void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
-void vTask1_sensor1( void *pvParameters );
-void vTask2_sensor2( void *pvParameters );
+void vTask1_sensor1 ( void *pvParameters );
+void vTask2_sensor2 ( void *pvParameters );
 void vTask3_CAN_send( void *pvParameters );
 void vTask4_displacement( void *pvParameters );
 
 void CAN_filterConfig(void);
-void LED_Display(uint8_t LedStatus);
+void LED_Display(uint8_t LedStatus);//option to LCD
+void Accellerometer_data(uint8_t);//for accelerometer prototype for CAN data
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -153,31 +152,24 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_TIM4_Init();
-  MX_TIM1_Init();
   MX_CAN1_Init();
-  MX_CAN2_Init();
   MX_SPI1_Init();
   MX_TIM2_Init();
-  MX_TIM6_Init();
-  MX_TIM7_Init();
+
   /* USER CODE BEGIN 2 */
 
 
- //  HAL_TIM_Base_Start(&htim2);
- //  HAL_GPIO_WritePin(TRIG_PORT_GPIO2, TRIG_PIN2, GPIO_PIN_RESET);
-   HAL_TIM_Base_Start(&htim4);
+   HAL_TIM_Base_Start(&htim2);
    HAL_GPIO_WritePin(TRIG_PORT_GPIO2, TRIG_PIN2, GPIO_PIN_RESET);
-   HAL_TIM_Base_Start(&htim6);
+   HAL_TIM_Base_Start(&htim4);
   HAL_GPIO_WritePin(TRIG_PORT_GPIO, TRIG_PIN, GPIO_PIN_RESET);
- //  HAL_TIM_Base_Start(&htim7);
- //  HAL_GPIO_WritePin(TRIG_PORT_GPIO2, TRIG_PIN7, GPIO_PIN_RESET);
 
-   /*##-Step1:Filter Configuration ###########################################*/
+   /*Step1:Filter Configuration */
        CAN_filterConfig();
 
-   /*##-Step2:Start the CAN peripheral ###########################################*/
+   /*Step2:Start the CAN peripheral */
 
- 	/*##-Step4:Configure Transmission process #####################################*/
+ 	/*Step4:Configure Transmission process */
 
   /* USER CODE END 2 */
 
@@ -186,7 +178,11 @@ int main(void)
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
+    b_Semaphore = xSemaphoreCreateBinary();
+    configASSERT(b_Semaphore != NULL);
   /* add semaphores, ... */
+
+       xSemaphoreGive(b_Semaphore);
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
@@ -205,17 +201,47 @@ int main(void)
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
-  	ret = xTaskCreate(vTask1_sensor1, "Ultrasonic_sensor 1 data", 240, NULL,1, NULL);
-    configASSERT(ret);
-    ret = xTaskCreate(vTask2_sensor2, "Ultrasonic_sensor 1 data", 240, NULL, 1, NULL);
-    configASSERT(ret);
-    ret = xTaskCreate(vTask3_CAN_send, "CAN_data_send", 240, NULL,1, NULL);
-    configASSERT(ret);
-    ret = xTaskCreate(vTask4_displacement, "Accellerometer data ", 240, NULL,1, NULL);
-        	configASSERT(ret);
-  /* Start scheduler */
-    vTaskStartScheduler();
 
+  //In this implementation, the stack allocated will be used as task stack, which
+  //          is independent of the main stack - this will be clear, if you look at the
+  //          internals of task creation API and context switching mechanism
+
+  	ret = xTaskCreate(vTask1_sensor1, "Ultrasonic_sensor 1 data", 240, NULL,1, NULL);
+    configASSERT(ret==pdPASS);
+
+    ret = xTaskCreate(vTask2_sensor2, "Ultrasonic_sensor 1 data", 240, NULL, 1, NULL);
+    configASSERT(ret==pdPASS);
+
+    ret = xTaskCreate(vTask3_CAN_send, "CAN_data_send", 240, NULL,1, NULL);
+    configASSERT(ret==pdPASS);
+
+    ret = xTaskCreate(vTask4_displacement, "Accellerometer data ", 240, NULL,1, NULL);
+    /* parameter1: Pointer to the function that implements the task. */
+    /* parameter2: Text name for the task.  This is to facilitate debugging*/
+    /* parameter3: Stack depth in words. */
+    /* parameter4: We are not using the task parameter. */
+    /* parameter5: This task will run at priority 1. */
+    /* parameter6: We are not using the task handle. */
+
+    configASSERT(ret==pdPASS);
+    //this configASSERT() will be crash this embedded application, if
+    //the condition/expression is false
+    //this will disable most of the maskable ints/exceptions
+    //in addition, invoke an infinite while loop
+    //this can be useful, for debugging and locating
+    //problems, using a good debug probe /IDE
+    //refer to FreeRTOSConfig.h , for this macro
+
+/* Start scheduler */
+     //vTaskStartScheduler() initializes hw timer,
+     //creates idle task and loads the most
+     //eligible task on the processor -
+     //control is passed to the kernel from here !!!!
+     //control is passed to scheduler/systick handler/other
+     //such handlers
+     //if vTaskStartScheduler() is successful,
+
+    vTaskStartScheduler();
   /* We should never get here as control is now taken by the scheduler */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
@@ -233,10 +259,19 @@ int main(void)
   * @retval None
   */
 void vTask1_sensor1( void *pvParameters ){
-		while(1){
+	unsigned int i =0, contention=0;
+	TickType_t xLastWakeTime;
 
+	/* The xLastWakeTime variable needs to be initialized with the current tick
+	count. Note that this is the only time the variable is written to explicitly.
+	After this xLastWakeTime is automatically updated within vTaskDelayUntil(). */
+	xLastWakeTime = xTaskGetTickCount();
+	/* As per most tasks, this task is implemented in an infinite loop. */
+	while(1){
 
-		HAL_GPIO_WritePin(TRIG_PORT_GPIO2, TRIG_PIN2, GPIO_PIN_SET);
+			//taskENTER_CRITICAL_section();
+			xSemaphoreTake(b_Semaphore, portMAX_DELAY);
+			HAL_GPIO_WritePin(TRIG_PORT_GPIO2, TRIG_PIN2, GPIO_PIN_SET);
 		    __HAL_TIM_SET_COUNTER(&htim4, 0);
 
 		    while (__HAL_TIM_GET_COUNTER (&htim4) < 10);
@@ -246,7 +281,8 @@ void vTask1_sensor1( void *pvParameters ){
 
 		    while (!(HAL_GPIO_ReadPin (ECHO_PORT_GPIO2, ECHO_PIN2)) && pMillis + 5 >  HAL_GetTick());
 		    sensor2_Triger_Time = __HAL_TIM_GET_COUNTER (&htim4);
-if(sensor2_Triger_Time<100){sensor2_Triger_Time=0;sensor2_Echo_Time=0;}
+
+		    if(sensor2_Triger_Time<100){sensor2_Triger_Time=0;sensor2_Echo_Time=0;}
 		    pMillis = HAL_GetTick();
 
 		    while ((HAL_GPIO_ReadPin (ECHO_PORT_GPIO2, ECHO_PIN2)) && pMillis + 10 > HAL_GetTick());
@@ -291,27 +327,40 @@ if(sensor2_Triger_Time<100){sensor2_Triger_Time=0;sensor2_Echo_Time=0;}
 
 
 		}
-		HAL_Delay(500);
+	 xSemaphoreGive(b_Semaphore);
+	        	// taskEXIT_CRITICAL();
+	        	// This task should execute every 2000 milliseconds deterministically .
+	        	// xLastWakeTime is automatically updated within vTaskDelayUntil(), so is not
+	        	// explicitly updated by the task. */
+	 vTaskDelayUntil(&xLastWakeTime,1000);
 		}
 void vTask2_sensor2( void *pvParameters ){
+	unsigned int i =0, contention=0;
+	TickType_t xLastWakeTime;
+
+	// The xLastWakeTime variable needs to be initialized with the current tick
+	// count. Note that this is the only time the variable is written to explicitly.
+	// After this xLastWakeTime is automatically updated within vTaskDelayUntil(). */
+	xLastWakeTime = xTaskGetTickCount();
+	/* As per most tasks, this task is implemented in an infinite loop. */
 	while(1){
 
+		xSemaphoreTake(Mutex_Handle_t, portMAX_DELAY);
+		HAL_GPIO_WritePin(TRIG_PORT_GPIO, TRIG_PIN, GPIO_PIN_SET);
+	    __HAL_TIM_SET_COUNTER(&htim2, 0);
 
-	HAL_GPIO_WritePin(TRIG_PORT_GPIO, TRIG_PIN, GPIO_PIN_SET);
-	    __HAL_TIM_SET_COUNTER(&htim6, 0);
-
-	    while (__HAL_TIM_GET_COUNTER (&htim6) < 10);
+	    while (__HAL_TIM_GET_COUNTER (&htim2) < 10);
 	    HAL_GPIO_WritePin(TRIG_PORT_GPIO, TRIG_PIN, GPIO_PIN_RESET);
 
 	    pMillis = HAL_GetTick();
 
 	    while (!(HAL_GPIO_ReadPin (ECHO_PORT_GPIO, ECHO_PIN)) && pMillis + 5 >  HAL_GetTick());
-	    sensor1_Triger_Time = __HAL_TIM_GET_COUNTER (&htim6);
+	    sensor1_Triger_Time = __HAL_TIM_GET_COUNTER (&htim2);
 
 	    pMillis = HAL_GetTick();
 
 	    while ((HAL_GPIO_ReadPin (ECHO_PORT_GPIO, ECHO_PIN)) && pMillis + 10 > HAL_GetTick());
-	    sensor1_Echo_Time = __HAL_TIM_GET_COUNTER (&htim6);
+	    sensor1_Echo_Time = __HAL_TIM_GET_COUNTER (&htim2);
 
 	    distance_by_sensor1 =((((((sensor1_Echo_Time-sensor1_Triger_Time))/10)*(343/2))*0.0245)/2)/100;
 
@@ -352,16 +401,28 @@ void vTask2_sensor2( void *pvParameters ){
 
 
 	}
-	HAL_Delay(500);
+	 xSemaphoreGive(b_Semaphore);
+	        	 // taskEXIT_CRITICAL();
+	        	 //  This task should execute every 500 milliseconds deterministically .
+	        	 //	xLastWakeTime is automatically updated within vTaskDelayUntil(), so is not
+	        	 //	explicitly updated by the task. */
+	 vTaskDelayUntil(&xLastWakeTime,500);
 	}
 void vTask3_CAN_send( void *pvParameters ){
+	unsigned int i =0, contention=0;
+	TickType_t xLastWakeTime;
 
+	// The xLastWakeTime variable needs to be initialized with the current tick
+	// count. Note that this is the only time the variable is written to explicitly.
+	// After this xLastWakeTime is automatically updated within vTaskDelayUntil(). */
+	xLastWakeTime = xTaskGetTickCount();
+	/* As per most tasks, this task is implemented in an infinite loop. */
 	if (HAL_CAN_Start(&hcan1) != HAL_OK)
 	     	  {
 	     		/* Start Error */
 	     		Error_Handler();
 	     	  }
-	   /*##-Step3:Activate CAN RX notification #######################################*/
+	   /*##-Step3:Activate CAN RX notification */
 	 	 if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)
 	 	{
 	 	  // Notification Error
@@ -374,6 +435,7 @@ void vTask3_CAN_send( void *pvParameters ){
 		  TxHeader.TransmitGlobalTime = DISABLE;
 	while(1){
 	  {
+		  xSemaphoreTake(Mutex_Handle_t, portMAX_DELAY);
 		    if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
 			      {
 		    	HAL_Delay(50);//Debouncing Delay
@@ -389,7 +451,7 @@ void vTask3_CAN_send( void *pvParameters ){
 							  LED_Display(++ubKeyNumber);
 							  /* Set the data to be transmitted */
 							  TxData[0] = ubKeyNumber;
-							  TxData[1] = 0xAD;///value to be send
+							  TxData[1] = Can_send;///value to be send
 
 							  /* Start the Transmission process */
 							  if (HAL_CAN_AddTxMessage(&hcan1, &TxHeader, TxData, &TxMailbox) != HAL_OK)
@@ -397,7 +459,6 @@ void vTask3_CAN_send( void *pvParameters ){
 									/* Transmission request Error */
 									Error_Handler();
 								  }
-					HAL_Delay(100);//Delay just for better Tuning
 							}
 						}
 			      }
@@ -406,11 +467,24 @@ void vTask3_CAN_send( void *pvParameters ){
 	    /* USER CODE end */
 	  }
 	}
-	HAL_Delay(500);
+	xSemaphoreGive(b_Semaphore);
+	 	 	// taskEXIT_CRITICAL();
+	        // This task should execute every 10000 milliseconds deterministically .
+	        // xLastWakeTime is automatically updated within vTaskDelayUntil(), so is not
+	        // explicitly updated by the task. */
+	vTaskDelayUntil(&xLastWakeTime,5000);
 }
 void vTask4_displacement( void *pvParameters ){
+	unsigned int i =0, contention=0;
+	TickType_t xLastWakeTime;
 
+		// The xLastWakeTime variable needs to be initialized with the current tick
+		// count. Note that this is the only time the variable is written to explicitly.
+		// After this xLastWakeTime is automatically updated within vTaskDelayUntil(). */
+	xLastWakeTime = xTaskGetTickCount();
+	    /* As per most tasks, this task is implemented in an infinite loop. */
 	while(1){
+		xSemaphoreTake(Mutex_Handle_t, portMAX_DELAY);
 		 HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, RESET);//CS Pin Low
 		  TxBuf[0]=0x20;//Address of Register
 		  TxBuf[1]=0x37;//Data for Register
@@ -420,24 +494,7 @@ void vTask4_displacement( void *pvParameters ){
 
 		  /* Infinite loop */
 		  /* USER CODE BEGIN WHILE */
-		  while (1)
-		  {
-			  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, RESET);//CS Pin Low
-			TxBuf[0]=0x28|ReadFlag;//Read Multi Byte Address of Register for X
-			HAL_SPI_Transmit(&hspi1, TxBuf, 1, 50);
-			HAL_SPI_Receive(&hspi1, Return, 2, 50);
-			HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, SET);//CS Pin High
-
-			Rx_x= ((Return[1]<<8)|Return[0])/100;
-			if((Rx_x>=50) && (Rx_x<=5000))
-					    {
-					    	HAL_GPIO_WritePin(GPIOE, GPIO_PIN_2,SET);
-					    }
-					else
-						HAL_GPIO_WritePin(GPIOE, GPIO_PIN_2,RESET);//LED
-
-
-
+		  while (1){
 			HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, RESET);//CS Pin Low
 			TxBuf[0]=0x2A|ReadFlag;//Read Multi Byte Address of Register for Y
 			HAL_SPI_Transmit(&hspi1, TxBuf, 1, 50);
@@ -445,28 +502,15 @@ void vTask4_displacement( void *pvParameters ){
 			HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, SET);//CS Pin High*/
 
 			Rx_y= ((Return[1]<<8)|Return[0])/100;
-			if((Rx_y<=700) && (Rx_y<=5000))
+			if((Rx_y > 999)
 				    {
-				    	HAL_GPIO_WritePin(GPIOE, GPIO_PIN_4,SET);
+					Can_send = Accellerometer_data(Rx_y);
+				    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_4,SET);
 				    }
 				else
 					HAL_GPIO_WritePin(GPIOE, GPIO_PIN_4,RESET);//led2
 
 
-
-			HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, RESET);//CS Pin Low
-			TxBuf[0]=0x2C|ReadFlag;//Read Multi Byte Address of Register for Z
-			HAL_SPI_Transmit(&hspi1, TxBuf, 1, 50);
-			HAL_SPI_Receive(&hspi1, Return, 2, 50);
-			HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, SET);//CS Pin High
-
-			Rx_z= ((Return[1]<<8)|Return[0])/100;
-			if((Rx_z>=180) && (Rx_z<=5000))
-					    {
-					    	HAL_GPIO_WritePin(GPIOE, GPIO_PIN_5,SET);//led5
-					    }
-					else
-						HAL_GPIO_WritePin(GPIOE, GPIO_PIN_5,RESET);//led5*/
 		/* only for Rx_y*/
 
 
@@ -475,9 +519,19 @@ void vTask4_displacement( void *pvParameters ){
 		  /* USER CODE END 3 */
 
 		}
-	displacement+=Rx_y;
-	HAL_Delay(500);
+	 xSemaphoreGive(b_Semaphore);
+	        	// taskEXIT_CRITICAL();
+	        	// This task should execute every 10000 milliseconds deterministically .
+	        	// xLastWakeTime is automatically updated within vTaskDelayUntil(), so is not
+	        	// explicitly updated by the task. */
+	 vTaskDelayUntil(&xLastWakeTime,5000);
 	}
+void Accellerometer_data(uint8_t data){
+static uint8_t Can_data_send=0;
+Can_data_send+=data;//updated data sent
+return Can_data_send;
+
+}
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
@@ -557,49 +611,8 @@ static void MX_CAN1_Init(void)
 
 }
 
-/**
-  * @brief CAN2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_CAN2_Init(void)
-{
 
-  /* USER CODE BEGIN CAN2_Init 0 */
-
-  /* USER CODE END CAN2_Init 0 */
-
-  /* USER CODE BEGIN CAN2_Init 1 */
-
-  /* USER CODE END CAN2_Init 1 */
-  hcan2.Instance = CAN2;
-  hcan2.Init.Prescaler = 56;
-  hcan2.Init.Mode = CAN_MODE_NORMAL;
-  hcan2.Init.SyncJumpWidth = CAN_SJW_1TQ;
-  hcan2.Init.TimeSeg1 = CAN_BS1_1TQ;
-  hcan2.Init.TimeSeg2 = CAN_BS2_1TQ;
-  hcan2.Init.TimeTriggeredMode = DISABLE;
-  hcan2.Init.AutoBusOff = DISABLE;
-  hcan2.Init.AutoWakeUp = DISABLE;
-  hcan2.Init.AutoRetransmission = DISABLE;
-  hcan2.Init.ReceiveFifoLocked = DISABLE;
-  hcan2.Init.TransmitFifoPriority = DISABLE;
-  if (HAL_CAN_Init(&hcan2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN CAN2_Init 2 */
-
-  /* USER CODE END CAN2_Init 2 */
-
-}
-
-/**
-  * @brief SPI1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_SPI1_Init(void)
+  */static void MX_SPI1_Init(void)
 {
 
   /* USER CODE BEGIN SPI1_Init 0 */
@@ -629,52 +642,6 @@ static void MX_SPI1_Init(void)
   /* USER CODE BEGIN SPI1_Init 2 */
 
   /* USER CODE END SPI1_Init 2 */
-
-}
-
-/**
-  * @brief TIM1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM1_Init(void)
-{
-
-  /* USER CODE BEGIN TIM1_Init 0 */
-
-  /* USER CODE END TIM1_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM1_Init 1 */
-
-  /* USER CODE END TIM1_Init 1 */
-  htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 83;
-  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 0xffff-1;
-  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim1.Init.RepetitionCounter = 0;
-  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM1_Init 2 */
-
-  /* USER CODE END TIM1_Init 2 */
 
 }
 
@@ -773,77 +740,6 @@ static void MX_TIM4_Init(void)
   * @param None
   * @retval None
   */
-
-static void MX_TIM6_Init(void)
-{
-
-  /* USER CODE BEGIN TIM6_Init 0 */
-
-  /* USER CODE END TIM6_Init 0 */
-
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM6_Init 1 */
-
-  /* USER CODE END TIM6_Init 1 */
-  htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 0;
-  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 65535;
-  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM6_Init 2 */
-
-  /* USER CODE END TIM6_Init 2 */
-
-}
-
-/**
-  * @brief TIM7 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM7_Init(void)
-{
-
-  /* USER CODE BEGIN TIM7_Init 0 */
-
-  /* USER CODE END TIM7_Init 0 */
-
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM7_Init 1 */
-
-  /* USER CODE END TIM7_Init 1 */
-  htim7.Instance = TIM7;
-  htim7.Init.Prescaler = 0;
-  htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim7.Init.Period = 65535;
-  htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim7, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM7_Init 2 */
-
-  /* USER CODE END TIM7_Init 2 */
-
-}
 
 /**
   * @brief GPIO Initialization Function
