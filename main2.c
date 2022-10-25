@@ -100,9 +100,13 @@ uint8_t  TxBuf[2];
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_TIM1_Init(void);
 static void MX_CAN1_Init(void);
+static void MX_CAN2_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_TIM6_Init(void);
+static void MX_TIM7_Init(void);
 void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
@@ -149,10 +153,13 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_TIM4_Init();
+  MX_TIM1_Init();
   MX_CAN1_Init();
+  MX_CAN2_Init();
   MX_SPI1_Init();
   MX_TIM2_Init();
-
+  MX_TIM6_Init();
+  MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
 
 
@@ -160,7 +167,7 @@ int main(void)
  //  HAL_GPIO_WritePin(TRIG_PORT_GPIO2, TRIG_PIN2, GPIO_PIN_RESET);
    HAL_TIM_Base_Start(&htim4);
    HAL_GPIO_WritePin(TRIG_PORT_GPIO2, TRIG_PIN2, GPIO_PIN_RESET);
-   HAL_TIM_Base_Start(&htim4);
+   HAL_TIM_Base_Start(&htim6);
   HAL_GPIO_WritePin(TRIG_PORT_GPIO, TRIG_PIN, GPIO_PIN_RESET);
  //  HAL_TIM_Base_Start(&htim7);
  //  HAL_GPIO_WritePin(TRIG_PORT_GPIO2, TRIG_PIN7, GPIO_PIN_RESET);
@@ -198,14 +205,14 @@ int main(void)
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
-    ret = xTaskCreate(vTask1_sensor1, "Ultrasonic_sensor 1 data", 240, NULL,1, NULL);
+  	ret = xTaskCreate(vTask1_sensor1, "Ultrasonic_sensor 1 data", 240, NULL,1, NULL);
     configASSERT(ret);
     ret = xTaskCreate(vTask2_sensor2, "Ultrasonic_sensor 1 data", 240, NULL, 1, NULL);
     configASSERT(ret);
     ret = xTaskCreate(vTask3_CAN_send, "CAN_data_send", 240, NULL,1, NULL);
     configASSERT(ret);
     ret = xTaskCreate(vTask4_displacement, "Accellerometer data ", 240, NULL,1, NULL);
-    configASSERT(ret);
+        	configASSERT(ret);
   /* Start scheduler */
     vTaskStartScheduler();
 
@@ -291,20 +298,20 @@ void vTask2_sensor2( void *pvParameters ){
 
 
 	HAL_GPIO_WritePin(TRIG_PORT_GPIO, TRIG_PIN, GPIO_PIN_SET);
-	    __HAL_TIM_SET_COUNTER(&htim2, 0);
+	    __HAL_TIM_SET_COUNTER(&htim6, 0);
 
-	    while (__HAL_TIM_GET_COUNTER (&htim2) < 10);
+	    while (__HAL_TIM_GET_COUNTER (&htim6) < 10);
 	    HAL_GPIO_WritePin(TRIG_PORT_GPIO, TRIG_PIN, GPIO_PIN_RESET);
 
 	    pMillis = HAL_GetTick();
 
 	    while (!(HAL_GPIO_ReadPin (ECHO_PORT_GPIO, ECHO_PIN)) && pMillis + 5 >  HAL_GetTick());
-	    sensor1_Triger_Time = __HAL_TIM_GET_COUNTER (&htim2);
+	    sensor1_Triger_Time = __HAL_TIM_GET_COUNTER (&htim6);
 
 	    pMillis = HAL_GetTick();
 
 	    while ((HAL_GPIO_ReadPin (ECHO_PORT_GPIO, ECHO_PIN)) && pMillis + 10 > HAL_GetTick());
-	    sensor1_Echo_Time = __HAL_TIM_GET_COUNTER (&htim2);
+	    sensor1_Echo_Time = __HAL_TIM_GET_COUNTER (&htim6);
 
 	    distance_by_sensor1 =((((((sensor1_Echo_Time-sensor1_Triger_Time))/10)*(343/2))*0.0245)/2)/100;
 
@@ -354,7 +361,7 @@ void vTask3_CAN_send( void *pvParameters ){
 	     		/* Start Error */
 	     		Error_Handler();
 	     	  }
-	   /*##-Step3:Activate CAN RX notification */
+	   /*##-Step3:Activate CAN RX notification #######################################*/
 	 	 if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)
 	 	{
 	 	  // Notification Error
@@ -550,8 +557,49 @@ static void MX_CAN1_Init(void)
 
 }
 
+/**
+  * @brief CAN2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_CAN2_Init(void)
+{
 
-  */static void MX_SPI1_Init(void)
+  /* USER CODE BEGIN CAN2_Init 0 */
+
+  /* USER CODE END CAN2_Init 0 */
+
+  /* USER CODE BEGIN CAN2_Init 1 */
+
+  /* USER CODE END CAN2_Init 1 */
+  hcan2.Instance = CAN2;
+  hcan2.Init.Prescaler = 56;
+  hcan2.Init.Mode = CAN_MODE_NORMAL;
+  hcan2.Init.SyncJumpWidth = CAN_SJW_1TQ;
+  hcan2.Init.TimeSeg1 = CAN_BS1_1TQ;
+  hcan2.Init.TimeSeg2 = CAN_BS2_1TQ;
+  hcan2.Init.TimeTriggeredMode = DISABLE;
+  hcan2.Init.AutoBusOff = DISABLE;
+  hcan2.Init.AutoWakeUp = DISABLE;
+  hcan2.Init.AutoRetransmission = DISABLE;
+  hcan2.Init.ReceiveFifoLocked = DISABLE;
+  hcan2.Init.TransmitFifoPriority = DISABLE;
+  if (HAL_CAN_Init(&hcan2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN CAN2_Init 2 */
+
+  /* USER CODE END CAN2_Init 2 */
+
+}
+
+/**
+  * @brief SPI1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI1_Init(void)
 {
 
   /* USER CODE BEGIN SPI1_Init 0 */
@@ -581,6 +629,52 @@ static void MX_CAN1_Init(void)
   /* USER CODE BEGIN SPI1_Init 2 */
 
   /* USER CODE END SPI1_Init 2 */
+
+}
+
+/**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 83;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 0xffff-1;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
 
 }
 
@@ -679,6 +773,77 @@ static void MX_TIM4_Init(void)
   * @param None
   * @retval None
   */
+
+static void MX_TIM6_Init(void)
+{
+
+  /* USER CODE BEGIN TIM6_Init 0 */
+
+  /* USER CODE END TIM6_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM6_Init 1 */
+
+  /* USER CODE END TIM6_Init 1 */
+  htim6.Instance = TIM6;
+  htim6.Init.Prescaler = 0;
+  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim6.Init.Period = 65535;
+  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM6_Init 2 */
+
+  /* USER CODE END TIM6_Init 2 */
+
+}
+
+/**
+  * @brief TIM7 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM7_Init(void)
+{
+
+  /* USER CODE BEGIN TIM7_Init 0 */
+
+  /* USER CODE END TIM7_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM7_Init 1 */
+
+  /* USER CODE END TIM7_Init 1 */
+  htim7.Instance = TIM7;
+  htim7.Init.Prescaler = 0;
+  htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim7.Init.Period = 65535;
+  htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim7, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM7_Init 2 */
+
+  /* USER CODE END TIM7_Init 2 */
+
+}
 
 /**
   * @brief GPIO Initialization Function
