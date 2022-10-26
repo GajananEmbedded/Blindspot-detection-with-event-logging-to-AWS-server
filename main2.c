@@ -45,7 +45,7 @@
 #define ECHO_PORT_GPIO GPIOA
 /**/
 #define TRIG_PIN2 GPIO_PIN_8
-#define TRIG_PORT_GPIO2 GPIOC ////port C in
+#define TRIG_PORT_GPIO2 GPIOC //port  C out
 
 #define ECHO_PIN2 GPIO_PIN_9
 #define ECHO_PORT_GPIO2 GPIOC
